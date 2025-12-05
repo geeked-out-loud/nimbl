@@ -1,0 +1,12 @@
+{
+  "name": "nimbl",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": ["apps/*", "packages/*", "db/*"],
+  "scripts": {
+    "dev:web": "turbo run dev --filter=apps/web...",
+    "dev": "node ./scripts/dev-all.js",
+    "test": "node --loader tsx ./test.js"
+  },
+  "type": "module"
+} 
