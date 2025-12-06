@@ -32,65 +32,65 @@ export interface ThemeColors {
 }
 
 export const lightTheme: ThemeColors = {
-  // Primary
-  primary: '#252627',
-  primaryHover: '#3a3a3c',
-  primaryActive: '#1a1a1b',
+  // Primary (cool graphite)
+  primary: '#11181C',
+  primaryHover: '#1A2328',
+  primaryActive: '#0D151A',
 
-  // Surfaces
-  surface: '#f3f2f2',
-  surfaceSecondary: '#e8e7e7',
-  surfaceTertiary: '#ddd9d9',
+  // Surfaces (clean, modern neutrals w/ slight cool tint)
+  surface: '#FFFFFF',
+  surfaceSecondary: '#F5F7F9',
+  surfaceTertiary: '#ECEEF0',
 
-  // Text
-  text: '#252627',
-  textSecondary: '#666666',
-  textTertiary: '#999999',
+  // Text (cool gray system)
+  text: '#11181C',
+  textSecondary: '#687076',
+  textTertiary: '#889096',
 
-  // Borders
-  border: '#d1cece',
-  borderSubtle: '#e8e7e7',
+  // Borders (proper hierarchy)
+  border: '#DDE1E3',
+  borderSubtle: '#E4E7E9',
 
-  // States
-  hover: '#eeeded',
-  active: '#e0dfdf',
+  // States (cool-neutrals, not muddy warm grays)
+  hover: '#F3F5F7',
+  active: '#E9EBED',
 
-  // Semantic
-  success: '#10b981',
-  warning: '#f59e0b',
-  error: '#ef4444',
-  info: '#3b82f6',
+  // Semantic (slightly softened, not neon)
+  success: '#17B26A',
+  warning: '#F5D90A',
+  error:   '#E5484D',
+  info:    '#0091FF',
 };
 
 export const darkTheme: ThemeColors = {
-  // Primary
-  primary: '#e8e7e7',
-  primaryHover: '#d1cece',
-  primaryActive: '#f3f2f2',
+  // Primary (cool, crisp, high-contrast)
+  primary: '#ECEDEE',
+  primaryHover: '#F5F6F7',
+  primaryActive: '#FFFFFF',
 
-  // Surfaces
-  surface: '#1a1a1b',
-  surfaceSecondary: '#2a2a2b',
-  surfaceTertiary: '#3a3a3c',
+  // Surfaces (structured deep neutrals)
+  surface: '#111213',            // base background
+  surfaceSecondary: '#1A1C1E',   // panels
+  surfaceTertiary: '#252729',    // elevated panels
 
-  // Text
-  text: '#f3f2f2',
-  textSecondary: '#b0b0b0',
-  textTertiary: '#808080',
+  // Text (cool gray text system)
+  text: '#ECEDEE',
+  textSecondary: '#9BA1A6',
+  textTertiary: '#6C7278',
 
-  // Borders
-  border: '#3a3a3c',
-  borderSubtle: '#2a2a2b',
+  // Borders (correct contrast)
+  border: '#2D2F31',
+  borderSubtle: '#1F2123',
 
-  // States
-  hover: '#2f2f30',
-  active: '#353536',
+  // States (cool neutral, not brownish)
+  hover: '#2A2C2E',
+  active: '#323436',
 
-  // Semantic
-  success: '#10b981',
-  warning: '#f59e0b',
-  error: '#ef4444',
-  info: '#3b82f6',
+  // Semantic (dark-mode tuned, slightly softened)
+  success: '#30D158',
+  warning: '#FFD60A',
+  error:   '#FF453A',
+  info:    '#0A84FF',
 };
 
 export const themes: Record<ThemeName, ThemeColors> = {

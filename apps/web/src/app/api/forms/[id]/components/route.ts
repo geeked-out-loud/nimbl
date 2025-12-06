@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { FormService } from '@nimbl/api';
 import { ensureDBInitialized } from '@/lib/db-init';
+import { getAuthUser } from '@/lib/auth/getAuthUser';
 
 // POST /api/forms/:id/components - Add component to form
 export async function POST(
@@ -9,6 +10,15 @@ export async function POST(
 ) {
   try {
     await ensureDBInitialized();
+    
+    const user = await getAuthUser();
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const { id: formId } = await params;
     const body = await request.json();
 
@@ -26,8 +36,7 @@ export async function POST(
       );
     }
 
-    // TODO: Get userId from auth token (Phase 2)
-    const userId = 'test-user-123';
+    const userId = user.id;
 
     // Verify form exists and user owns it
     const form = await FormService.getForm(formId, userId);

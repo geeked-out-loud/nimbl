@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { FormService, ResponseService } from '@nimbl/api';
 import { ensureDBInitialized } from '@/lib/db-init';
-
-const userId = 'test-user-123'; // TODO: Use actual user ID from Supabase Auth
+import { getAuthUser } from '@/lib/auth/getAuthUser';
 
 /**
  * POST /api/forms/export/:id
@@ -28,9 +27,19 @@ export async function POST(
 ) {
   try {
     await ensureDBInitialized();
+    
+    const user = await getAuthUser();
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const { id: formId } = await params;
     const body = await req.json();
     const format = body.format || 'csv';
+    const userId = user.id;
 
     // Validate format
     if (!['csv', 'json'].includes(format)) {

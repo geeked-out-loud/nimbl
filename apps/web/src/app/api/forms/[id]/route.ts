@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { FormService } from '@nimbl/api';
 import { ensureDBInitialized } from '@/lib/db-init';
+import { getAuthUser } from '@/lib/auth/getAuthUser';
 
 // GET /api/forms/:id - Get single form
 export async function GET(
@@ -9,6 +10,15 @@ export async function GET(
 ) {
   try {
     await ensureDBInitialized();
+    
+    const user = await getAuthUser();
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const { id: formId } = await params;
 
     if (!formId) {
@@ -18,8 +28,7 @@ export async function GET(
       );
     }
 
-    // TODO: Get userId from auth token (Phase 2)
-    const userId = 'test-user-123';
+    const userId = user.id;
 
     const form = await FormService.getForm(formId, userId);
 
@@ -53,6 +62,15 @@ export async function PUT(
 ) {
   try {
     await ensureDBInitialized();
+    
+    const user = await getAuthUser();
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const { id: formId } = await params;
     const body = await request.json();
 
@@ -63,8 +81,7 @@ export async function PUT(
       );
     }
 
-    // TODO: Get userId from auth token (Phase 2)
-    const userId = 'test-user-123';
+    const userId = user.id;
 
     const form = await FormService.updateForm(formId, userId, body);
 
@@ -97,6 +114,15 @@ export async function DELETE(
 ) {
   try {
     await ensureDBInitialized();
+    
+    const user = await getAuthUser();
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const { id: formId } = await params;
 
     if (!formId) {
@@ -106,8 +132,7 @@ export async function DELETE(
       );
     }
 
-    // TODO: Get userId from auth token (Phase 2)
-    const userId = 'test-user-123';
+    const userId = user.id;
 
     await FormService.deleteForm(formId, userId);
 

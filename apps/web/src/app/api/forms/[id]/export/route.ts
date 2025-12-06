@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { FormService, ResponseService } from '@nimbl/api';
-
-const userId = 'test-user-123'; // TODO: Use actual user ID from Supabase Auth
+import { ensureDBInitialized } from '@/lib/db-init';
+import { getAuthUser } from '@/lib/auth/getAuthUser';
 
 /**
  * GET /api/forms/:id/export?format=csv|json
@@ -26,8 +26,19 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await ensureDBInitialized();
+    
+    const user = await getAuthUser();
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const { id: formId } = await params;
     const format = req.nextUrl.searchParams.get('format') || 'csv';
+    const userId = user.id;
 
     // Validate format
     if (!['csv', 'json'].includes(format)) {

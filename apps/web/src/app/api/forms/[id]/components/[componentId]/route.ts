@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { FormService } from '@nimbl/api';
 import { ensureDBInitialized } from '@/lib/db-init';
+import { getAuthUser } from '@/lib/auth/getAuthUser';
 
 // PUT /api/forms/:id/components/:componentId - Update component
 export async function PUT(
@@ -9,6 +10,15 @@ export async function PUT(
 ) {
   try {
     await ensureDBInitialized();
+    
+    const user = await getAuthUser();
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const { id: formId, componentId } = await params;
     const body = await request.json();
 
@@ -19,8 +29,7 @@ export async function PUT(
       );
     }
 
-    // TODO: Get userId from auth token (Phase 2)
-    const userId = 'test-user-123';
+    const userId = user.id;
 
     // Verify form exists and user owns it
     const form = await FormService.getForm(formId, userId);
@@ -72,6 +81,15 @@ export async function DELETE(
 ) {
   try {
     await ensureDBInitialized();
+    
+    const user = await getAuthUser();
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const { id: formId, componentId } = await params;
 
     if (!formId || !componentId) {
@@ -81,8 +99,7 @@ export async function DELETE(
       );
     }
 
-    // TODO: Get userId from auth token (Phase 2)
-    const userId = 'test-user-123';
+    const userId = user.id;
 
     // Verify form exists and user owns it
     const form = await FormService.getForm(formId, userId);

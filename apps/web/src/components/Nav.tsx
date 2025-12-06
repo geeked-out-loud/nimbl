@@ -4,11 +4,24 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { ThemeToggle } from './ThemeToggle';
 import { useTheme } from '@/theme';
+import { useAuth } from '@/lib/auth/useAuth';
 import { useState, useEffect } from 'react';
 
 export function Nav() {
   const { theme } = useTheme();
+  const { user } = useAuth();
   const [scrolled, setScrolled] = useState(false);
+
+  const getUserInitial = () => {
+    if (!user) return '';
+    if (user.user_metadata?.full_name) {
+      return user.user_metadata.full_name.charAt(0).toUpperCase();
+    }
+    if (user.email) {
+      return user.email.charAt(0).toUpperCase();
+    }
+    return 'U';
+  };
 
   useEffect(() => {
     const handleScroll = () => {
@@ -60,12 +73,21 @@ export function Nav() {
         {/* Links */}
         <div className="flex items-center gap-1 sm:gap-6">
           <ThemeToggle />
-          <Link
-            href="/forms"
-            className="px-4 py-2 bg-primary text-surface rounded-lg font-medium hover:bg-primary-hover transition-colors text-sm sm:text-base"
-          >
-            Sign In
-          </Link>
+          {user ? (
+            <div 
+              className="w-8 h-8 rounded-full bg-primary text-surface flex items-center justify-center text-sm font-semibold"
+              title={user.email || 'User'}
+            >
+              {getUserInitial()}
+            </div>
+          ) : (
+            <Link
+              href="/forms"
+              className="px-4 py-2 bg-primary text-surface rounded-lg font-medium hover:bg-primary-hover transition-colors text-sm sm:text-base"
+            >
+              Sign In
+            </Link>
+          )}
         </div>
       </nav>
     </header>

@@ -1,11 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { FormService } from '@nimbl/api';
 import { ensureDBInitialized } from '@/lib/db-init';
+import { getAuthUser } from '@/lib/auth/getAuthUser';
 
 // POST /api/forms - Create new form
 export async function POST(request: NextRequest) {
   try {
     await ensureDBInitialized();
+    
+    const user = await getAuthUser();
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const body = await request.json();
 
     if (!body.title || typeof body.title !== 'string' || !body.title.trim()) {
@@ -15,9 +25,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // TODO: Get userId from auth token (Phase 2)
-    // For now, use hardcoded test user
-    const userId = 'test-user-123';
+    const userId = user.id;
 
     const form = await FormService.createForm(userId, {
       title: body.title.trim(),
@@ -39,12 +47,19 @@ export async function GET(request: NextRequest) {
   try {
     await ensureDBInitialized();
 
+    const user = await getAuthUser();
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const searchParams = request.nextUrl.searchParams;
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '20');
 
-    // TODO: Get userId from auth token (Phase 2)
-    const userId = 'test-user-123';
+    const userId = user.id;
 
     const result = await FormService.listForms(userId, { page, limit });
 

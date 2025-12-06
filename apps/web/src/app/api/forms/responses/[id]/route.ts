@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ResponseService } from '@nimbl/api';
 import { ensureDBInitialized } from '@/lib/db-init';
+import { getAuthUser } from '@/lib/auth/getAuthUser';
 
 // GET /api/forms/responses/:id - Get single response
 export async function GET(
@@ -9,6 +10,15 @@ export async function GET(
 ) {
   try {
     await ensureDBInitialized();
+    
+    const user = await getAuthUser();
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const { id: responseId } = await params;
 
     if (!responseId) {
@@ -18,8 +28,7 @@ export async function GET(
       );
     }
 
-    // TODO: Get userId from auth token (Phase 2)
-    const userId = 'test-user-123';
+    const userId = user.id;
 
     const response = await ResponseService.getResponse(responseId, userId);
 
@@ -53,6 +62,15 @@ export async function DELETE(
 ) {
   try {
     await ensureDBInitialized();
+    
+    const user = await getAuthUser();
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const { id: responseId } = await params;
 
     if (!responseId) {
@@ -62,8 +80,7 @@ export async function DELETE(
       );
     }
 
-    // TODO: Get userId from auth token (Phase 2)
-    const userId = 'test-user-123';
+    const userId = user.id;
 
     await ResponseService.deleteResponse(responseId, userId);
 

@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import "./scrollbar.css";
 import { ThemeProvider } from "@/theme";
 import { ThemeScript } from "@/theme/theme-script";
+import { EmailVerificationBanner } from "@/components/EmailVerificationBanner";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -15,8 +17,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Form Builder",
-  description: "Create beautiful forms without code",
+  title: "nimbl",
+  description: "Form Builder",
   icons: {
     icon: "/icon.svg",
   },
@@ -32,8 +34,9 @@ export default function RootLayout({
       <head>
         <ThemeScript />
       </head>
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased bg-surface text-text`}>
+      <body className={`${geistSans.variable} ${geistMono.variable} antialiased bg-surface text-text custom-scrollbar`}>
         <ThemeProvider>
+          <EmailVerificationBanner />
           {children}
         </ThemeProvider>
       </body>

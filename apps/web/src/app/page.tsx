@@ -6,7 +6,7 @@ import { GitCommitVertical, Zap, Palette, BarChart3, ChevronRight, Info, Grid3x3
 
 function LandingContent() {
   return (
-    <div className="min-h-screen bg-surface text-text">
+    <div className="min-h-screen bg-surface text-text custom-scrollbar">
       <Nav />
 
       <section className="py-20 sm:py-32 px-6 bg-linear-to-b from-surface via-surface to-surface-secondary">
@@ -31,7 +31,7 @@ function LandingContent() {
               How it works
               </Link>
               <Link
-              href="/forms"
+              href="/playground"
               className="inline-flex w-full sm:w-auto items-center px-8 py-3 bg-primary text-surface rounded-xl font-semibold text-lg hover:bg-primary-hover transition justify-center"
               >
               Start Building
@@ -96,7 +96,7 @@ function LandingContent() {
                   <p className="text-text-secondary text-sm mb-4">
                     Drag components onto a grid. Snap to alignment. Resize with precision. Design forms like you design UIs.
                   </p>
-                  <div className="bg-surface border border-border rounded-lg p-4 space-y-2">
+                  <div className="bg-surface border border-border rounded-lg p-4 space-y-2 hover:border-primary">
                     <div className="h-8 bg-primary/5 border border-border-subtle rounded flex items-center px-3 hover:border-primary transition-colors">
                       <span className="text-xs text-text-secondary">Input field with snapping</span>
                     </div>
@@ -122,7 +122,7 @@ function LandingContent() {
                   <p className="text-text-secondary text-sm mb-4">
                     Pre-built components ready to drop. Text, checkboxes, dropdowns, file uploads—all styled and functional.
                   </p>
-                  <div className="bg-surface border border-border rounded-lg p-3 space-y-2">
+                  <div className="bg-surface border border-border rounded-lg p-3 space-y-2 hover:border-primary">
                     {['Text Input', 'Checkbox', 'Dropdown', 'File Upload'].map((item, i) => (
                       <div key={i} className="flex items-center gap-2 px-3 py-2 bg-surface-secondary border border-border-subtle rounded text-xs hover:border-primary transition-colors cursor-pointer">
                         <div className="w-1.5 h-1.5 rounded-full bg-primary"></div>
@@ -144,7 +144,7 @@ function LandingContent() {
                   <p className="text-text-secondary text-sm mb-4">
                     One-click publish. Get a shareable link. Embed anywhere. Fully responsive and styled.
                   </p>
-                  <div className="bg-surface border border-border rounded-lg p-4 space-y-3">
+                  <div className="bg-surface border border-border rounded-lg p-4 space-y-3 hover:border-primary">
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-text-secondary">form.nimbl.io/contact</span>
                       <div className="px-2 py-1 bg-primary/10 text-primary rounded">Live</div>
@@ -167,7 +167,7 @@ function LandingContent() {
                   <p className="text-text-secondary text-sm mb-4">
                     Real-time responses. Filter, sort, export. See trends at a glance.
                   </p>
-                  <div className="bg-surface border border-border rounded-lg p-4 space-y-2">
+                  <div className="bg-surface border border-border rounded-lg p-4 space-y-2 hover:border-primary">
                     <div className="flex items-center justify-between text-xs mb-3">
                       <span className="font-semibold">156 responses</span>
                       <span className="text-text-secondary">Last 7 days</span>
