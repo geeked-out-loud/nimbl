@@ -1,34 +1,96 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { FormComponent, GridPosition } from '../types';
-import { pixelToGrid, gridToPixel, clampPosition, checkOverlap } from '../gridUtils';
+import { FormComponent, GridPosition, FieldNode, FrameNode, FormDefinition } from '../types';
+import { 
+  gridColToPx, 
+  gridRowToPx, 
+  pxToGridCol, 
+  pxToGridRow,
+  clampFieldPosition, 
+  checkFieldOverlap,
+  frameLocalToWorld,
+  worldToFrameLocal
+} from '../gridUtils';
 import { GripVertical, Trash2 } from 'lucide-react';
-import { CANVAS_CONFIG, isModifierKey, shouldPreventDefault, clampZoom } from '../config';
-
-const GRID_SIZE = CANVAS_CONFIG.GRID_SIZE;
-const COLUMNS = CANVAS_CONFIG.GRID_COLUMNS;
+import { CANVAS_CONFIG, isModifierKey, shouldPreventDefault } from '../config';
+import { Camera, screenToWorld, worldToScreen, clampCamera, CAMERA_CONFIG } from '../camera';
 
 type CanvasProps = {
-  components: FormComponent[];
-  selectedId: string | null;
-  onSelect: (id: string | null) => void;
-  onUpdate: (id: string, updates: Partial<FormComponent>) => void;
-  onDelete: () => void;
+  // New Frame/Field system
+  formDefinition: FormDefinition;
+  selectedFieldId: string | null;
+  onFieldSelect: (id: string | null) => void;
+  onFieldUpdate: (id: string, updates: Partial<FieldNode>) => void;
+  onFieldDelete: () => void;
+  
+  // Camera
+  camera: Camera;
+  onCameraChange: (camera: Camera) => void;
+  
+  // Display
   showGrid: boolean;
-  zoom: number;
-  pan: { x: number; y: number };
-  onPanChange: (pan: { x: number; y: number }) => void;
-  onZoomChange: (zoom: number) => void;
+  snapToGrid: boolean;
+  
+  // Legacy support (for gradual migration)
+  components?: FormComponent[];
+  selectedId?: string | null;
+  onSelect?: (id: string | null) => void;
+  onUpdate?: (id: string, updates: Partial<FormComponent>) => void;
+  onDelete?: () => void;
+  zoom?: number;
+  pan?: { x: number; y: number };
+  onPanChange?: (pan: { x: number; y: number }) => void;
+  onZoomChange?: (zoom: number) => void;
 };
 
-export function Canvas({ components, selectedId, onSelect, onUpdate, onDelete, showGrid, zoom, pan, onPanChange, onZoomChange }: CanvasProps) {
+export function Canvas({ 
+  formDefinition,
+  selectedFieldId,
+  onFieldSelect,
+  onFieldUpdate,
+  onFieldDelete,
+  camera,
+  onCameraChange,
+  showGrid,
+  snapToGrid,
+  // Legacy props
+  components = [],
+  selectedId = null,
+  onSelect = () => {},
+  onUpdate = () => {},
+  onDelete = () => {},
+}: CanvasProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
-  const workspaceRef = useRef<HTMLDivElement>(null);
-  const [dragging, setDragging] = useState<{ id: string; offsetX: number; offsetY: number } | null>(null);
-  const [resizing, setResizing] = useState<{ id: string; direction: string; startX: number; startY: number; startPos: GridPosition } | null>(null);
-  const [panning, setPanning] = useState<{ startX: number; startY: number; startPan: { x: number; y: number } } | null>(null);
+  const worldRef = useRef<HTMLDivElement>(null);
+  
+  const [dragging, setDragging] = useState<{ 
+    fieldId: string; 
+    frameId: string;
+    offsetX: number; 
+    offsetY: number;
+  } | null>(null);
+  
+  const [resizing, setResizing] = useState<{ 
+    fieldId: string; 
+    frameId: string;
+    direction: string; 
+    startX: number; 
+    startY: number; 
+    startLayout: { x: number; y: number; w: number; h: number };
+  } | null>(null);
+  
+  const [panning, setPanning] = useState<{ 
+    startX: number; 
+    startY: number; 
+    startCamera: Camera;
+  } | null>(null);
 
-  const CANVAS_WIDTH = CANVAS_CONFIG.CANVAS_WIDTH;
-  const CANVAS_HEIGHT = CANVAS_CONFIG.CANVAS_HEIGHT;
+  // Get root frame
+  const rootFrame = formDefinition.frames[formDefinition.rootFrameId];
+  if (!rootFrame) {
+    return <div className="w-full h-full flex items-center justify-center text-text-secondary">
+      No root frame defined
+    </div>;
+  }
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -37,62 +99,36 @@ export function Canvas({ components, selectedId, onSelect, onUpdate, onDelete, s
         e.preventDefault();
       }
 
-      // Delete selected component
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
-        onDelete();
+      // Delete selected field
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedFieldId) {
+        onFieldDelete();
       }
 
       // Deselect
       if (e.key === 'Escape') {
-        onSelect(null);
-      }
-
-      // Toggle grid
-      if (isModifierKey(e) && e.key.toLowerCase() === 'g') {
-        // Toggled via parent component
-      }
-
-      // Zoom shortcuts
-      if (isModifierKey(e) && e.key === '0') {
-        onPanChange({ x: 0, y: 0 });
+        onFieldSelect(null);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedId, onDelete, onSelect, onPanChange]);
+  }, [selectedFieldId, onFieldDelete, onFieldSelect]);
 
   // Handle mouse move for drag, resize, and pan
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (panning && canvasRef.current) {
-        const dx = e.clientX - panning.startX;
-        const dy = e.clientY - panning.startY;
+        // Pan camera
+        const dx = (e.clientX - panning.startX) / camera.zoom;
+        const dy = (e.clientY - panning.startY) / camera.zoom;
         
-        // Calculate new pan position
-        const newPanX = panning.startPan.x + dx;
-        const newPanY = panning.startPan.y + dy;
+        const newCamera: Camera = {
+          x: panning.startCamera.x - dx,
+          y: panning.startCamera.y - dy,
+          zoom: camera.zoom,
+        };
         
-        // Get viewport dimensions
-        const viewportWidth = canvasRef.current.clientWidth;
-        const viewportHeight = canvasRef.current.clientHeight;
-        
-        // Calculate scaled canvas dimensions
-        const scaledWidth = CANVAS_WIDTH * (zoom / 100);
-        const scaledHeight = CANVAS_HEIGHT * (zoom / 100);
-        
-        // Calculate max pan limits (keep canvas within viewport)
-        const maxPanX = (scaledWidth - viewportWidth) / 2;
-        const maxPanY = (scaledHeight - viewportHeight) / 2;
-        
-        // Clamp pan to boundaries
-        const clampedPanX = Math.min(maxPanX, Math.max(-maxPanX, newPanX));
-        const clampedPanY = Math.min(maxPanY, Math.max(-maxPanY, newPanY));
-        
-        onPanChange({
-          x: clampedPanX,
-          y: clampedPanY,
-        });
+        onCameraChange(clampCamera(newCamera, rootFrame));
       } else if (dragging) {
         handleDrag(e);
       } else if (resizing) {
@@ -114,133 +150,206 @@ export function Canvas({ components, selectedId, onSelect, onUpdate, onDelete, s
         document.removeEventListener('mouseup', handleMouseUp);
       };
     }
-  }, [panning, dragging, resizing, components, onPanChange]);
+  }, [panning, dragging, resizing, camera, rootFrame, onCameraChange]);
 
   const handleDrag = (e: MouseEvent) => {
     if (!dragging || !canvasRef.current) return;
 
     const rect = canvasRef.current.getBoundingClientRect();
+    const frame = formDefinition.frames[dragging.frameId];
+    if (!frame) return;
+
+    // Convert screen to world coordinates
+    const worldPos = screenToWorld(
+      e.clientX - rect.left,
+      e.clientY - rect.top,
+      camera,
+      { width: rect.width, height: rect.height }
+    );
+
+    // Convert world to frame-local coordinates
+    const frameLocal = worldToFrameLocal(worldPos.x, worldPos.y, frame);
+
+    // Convert frame-local pixels to grid units
+    let gridX: number;
+    let gridY: number;
     
-    // Account for zoom and pan
-    const mouseX = ((e.clientX - rect.left - pan.x) / (zoom / 100)) - dragging.offsetX;
-    const mouseY = ((e.clientY - rect.top - pan.y) / (zoom / 100)) - dragging.offsetY;
+    if (snapToGrid) {
+      gridX = pxToGridCol(frameLocal.x - dragging.offsetX, frame.layout.w, frame.grid.columns);
+      gridY = pxToGridRow(frameLocal.y - dragging.offsetY, frame.grid.rowUnit);
+    } else {
+      // No snapping - use precise pixel-to-grid conversion
+      gridX = (frameLocal.x - dragging.offsetX) / (frame.layout.w / frame.grid.columns);
+      gridY = (frameLocal.y - dragging.offsetY) / frame.grid.rowUnit;
+    }
 
-    const { col, row } = pixelToGrid(mouseX, mouseY, CANVAS_WIDTH);
+    const field = formDefinition.fields[dragging.fieldId];
+    if (!field) return;
 
-    const component = components.find(c => c.id === dragging.id);
-    if (!component) return;
-
-    let newPosition: GridPosition = {
-      x: col,
-      y: row,
-      w: component.position.w,
-      h: component.position.h,
+    let newLayout = {
+      frameId: field.layout.frameId,
+      x: gridX,
+      y: gridY,
+      w: field.layout.w,
+      h: field.layout.h,
     };
 
-    newPosition = clampPosition(newPosition);
+    // Clamp to frame bounds
+    const clamped = clampFieldPosition(
+      { x: newLayout.x, y: newLayout.y, w: newLayout.w, h: newLayout.h },
+      frame.grid.columns
+    );
+    newLayout = { ...newLayout, ...clamped };
 
-    const otherComponents = components.filter(c => c.id !== dragging.id);
-    const hasOverlap = otherComponents.some(c => checkOverlap(newPosition, c.position));
+    // Check for overlaps with other fields in the same frame
+    const otherFields = Object.values(formDefinition.fields).filter(
+      f => f.id !== dragging.fieldId && f.layout.frameId === dragging.frameId
+    );
+    
+    const hasOverlap = otherFields.some(f => 
+      checkFieldOverlap(newLayout, f.layout)
+    );
 
     if (!hasOverlap) {
-      onUpdate(dragging.id, { position: newPosition });
+      onFieldUpdate(dragging.fieldId, { layout: newLayout });
     }
   };
 
   const handleResizeMove = (e: MouseEvent) => {
     if (!resizing || !canvasRef.current) return;
 
-    const component = components.find(c => c.id === resizing.id);
-    if (!component) return;
+    const frame = formDefinition.frames[resizing.frameId];
+    if (!frame) return;
 
-    const deltaX = Math.round((e.clientX - resizing.startX) / GRID_SIZE / (zoom / 100));
-    const deltaY = Math.round((e.clientY - resizing.startY) / GRID_SIZE / (zoom / 100));
+    // Calculate delta in grid units
+    const deltaX = Math.round((e.clientX - resizing.startX) / camera.zoom / (frame.layout.w / frame.grid.columns));
+    const deltaY = Math.round((e.clientY - resizing.startY) / camera.zoom / frame.grid.rowUnit);
 
-    let newPosition = { ...resizing.startPos };
+    let newLayout = { ...resizing.startLayout };
 
+    // Apply resize based on direction
     if (resizing.direction.includes('e')) {
-      newPosition.w = Math.max(2, resizing.startPos.w + deltaX);
+      newLayout.w = Math.max(2, resizing.startLayout.w + deltaX);
     }
     if (resizing.direction.includes('w')) {
-      const newW = Math.max(2, resizing.startPos.w - deltaX);
-      const diff = resizing.startPos.w - newW;
-      newPosition.x = resizing.startPos.x + diff;
-      newPosition.w = newW;
+      const newW = Math.max(2, resizing.startLayout.w - deltaX);
+      const diff = resizing.startLayout.w - newW;
+      newLayout.x = resizing.startLayout.x + diff;
+      newLayout.w = newW;
     }
     if (resizing.direction.includes('s')) {
-      newPosition.h = Math.max(2, resizing.startPos.h + deltaY);
+      newLayout.h = Math.max(2, resizing.startLayout.h + deltaY);
     }
     if (resizing.direction.includes('n')) {
-      const newH = Math.max(2, resizing.startPos.h - deltaY);
-      const diff = resizing.startPos.h - newH;
-      newPosition.y = resizing.startPos.y + diff;
-      newPosition.h = newH;
+      const newH = Math.max(2, resizing.startLayout.h - deltaY);
+      const diff = resizing.startLayout.h - newH;
+      newLayout.y = resizing.startLayout.y + diff;
+      newLayout.h = newH;
     }
 
-    newPosition = clampPosition(newPosition);
+    // Clamp to frame bounds (preserve frameId)
+    const clamped = clampFieldPosition(
+      { x: newLayout.x, y: newLayout.y, w: newLayout.w, h: newLayout.h },
+      frame.grid.columns
+    );
+    const finalLayout = { 
+      frameId: resizing.frameId,
+      ...clamped 
+    };
 
-    const otherComponents = components.filter(c => c.id !== resizing.id);
-    const hasOverlap = otherComponents.some(c => checkOverlap(newPosition, c.position));
+    // Check for overlaps
+    const otherFields = Object.values(formDefinition.fields).filter(
+      f => f.id !== resizing.fieldId && f.layout.frameId === resizing.frameId
+    );
+    
+    const hasOverlap = otherFields.some(f => 
+      checkFieldOverlap(finalLayout, f.layout)
+    );
 
     if (!hasOverlap) {
-      onUpdate(resizing.id, { position: newPosition });
+      onFieldUpdate(resizing.fieldId, { layout: finalLayout });
     }
   };
 
-  const handleDragStart = (e: React.MouseEvent, component: FormComponent) => {
+  const handleDragStart = (e: React.MouseEvent, field: FieldNode, frame: FrameNode) => {
     e.stopPropagation();
     e.preventDefault();
-    onSelect(component.id);
+    onFieldSelect(field.id);
 
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return;
+    if (!canvasRef.current) return;
 
-    const { x: compX } = gridToPixel(component.position.x, component.position.y, CANVAS_WIDTH);
+    const rect = canvasRef.current.getBoundingClientRect();
+    
+    // Convert screen to world
+    const worldPos = screenToWorld(
+      e.clientX - rect.left,
+      e.clientY - rect.top,
+      camera,
+      { width: rect.width, height: rect.height }
+    );
+
+    // Convert world to frame-local
+    const frameLocal = worldToFrameLocal(worldPos.x, worldPos.y, frame);
+
+    // Field position in frame-local pixels
+    const fieldX = gridColToPx(field.layout.x, frame.layout.w, frame.grid.columns);
+    const fieldY = gridRowToPx(field.layout.y, frame.grid.rowUnit);
 
     setDragging({
-      id: component.id,
-      offsetX: 0,
-      offsetY: 0,
+      fieldId: field.id,
+      frameId: field.layout.frameId,
+      offsetX: frameLocal.x - fieldX,
+      offsetY: frameLocal.y - fieldY,
     });
   };
 
-  const handleResizeStart = (e: React.MouseEvent, component: FormComponent, direction: string) => {
+  const handleResizeStart = (
+    e: React.MouseEvent, 
+    field: FieldNode, 
+    frame: FrameNode, 
+    direction: string
+  ) => {
     e.stopPropagation();
     e.preventDefault();
-    onSelect(component.id);
+    onFieldSelect(field.id);
 
     setResizing({
-      id: component.id,
+      fieldId: field.id,
+      frameId: field.layout.frameId,
       direction,
       startX: e.clientX,
       startY: e.clientY,
-      startPos: { ...component.position },
+      startLayout: { ...field.layout },
     });
   };
 
-  const renderComponent = (component: FormComponent) => {
-    const { x, y } = gridToPixel(component.position.x, component.position.y, CANVAS_WIDTH);
-    const width = (component.position.w / COLUMNS) * CANVAS_WIDTH;
-    const height = component.position.h * GRID_SIZE;
-    const isSelected = component.id === selectedId;
+  // Render a field within a frame
+  const renderField = (field: FieldNode, frame: FrameNode) => {
+    const isSelected = field.id === selectedFieldId;
+
+    // Field position and size in frame-local pixels
+    const x = gridColToPx(field.layout.x, frame.layout.w, frame.grid.columns);
+    const y = gridRowToPx(field.layout.y, frame.grid.rowUnit);
+    const w = gridColToPx(field.layout.w, frame.layout.w, frame.grid.columns);
+    const h = gridRowToPx(field.layout.h, frame.grid.rowUnit);
 
     return (
       <div
-        key={component.id}
+        key={field.id}
         style={{
           position: 'absolute',
           left: x,
           top: y,
-          width,
-          height,
+          width: w,
+          height: h,
         }}
         className={`group cursor-move ${isSelected ? 'z-10' : 'z-0'}`}
         onClick={(e) => {
           e.stopPropagation();
-          onSelect(component.id);
+          onFieldSelect(field.id);
         }}
       >
-        {/* Component Border */}
+        {/* Field Border */}
         <div className={`absolute inset-0 border-2 rounded-lg transition ${
           isSelected 
             ? 'border-primary bg-primary/5' 
@@ -249,14 +358,14 @@ export function Canvas({ components, selectedId, onSelect, onUpdate, onDelete, s
           {/* Drag Handle */}
           {isSelected && (
             <div
-              onMouseDown={(e) => handleDragStart(e, component)}
+              onMouseDown={(e) => handleDragStart(e, field, frame)}
               className="absolute top-0 left-0 right-0 h-8 bg-primary flex items-center justify-between px-2 cursor-move rounded-t-md"
             >
               <GripVertical className="w-4 h-4 text-surface" />
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  onDelete();
+                  onFieldDelete();
                 }}
                 className="p-1 hover:bg-surface/20 rounded text-surface"
               >
@@ -265,9 +374,9 @@ export function Canvas({ components, selectedId, onSelect, onUpdate, onDelete, s
             </div>
           )}
 
-          {/* Component Content */}
+          {/* Field Content */}
           <div className={`p-3 ${isSelected ? 'pt-10' : ''}`}>
-            <ComponentPreview component={component} />
+            <FieldPreview field={field} />
           </div>
 
           {/* Resize Handles */}
@@ -276,7 +385,7 @@ export function Canvas({ components, selectedId, onSelect, onUpdate, onDelete, s
               {['nw', 'ne', 'sw', 'se', 'n', 's', 'e', 'w'].map((dir) => (
                 <div
                   key={dir}
-                  onMouseDown={(e) => handleResizeStart(e, component, dir)}
+                  onMouseDown={(e) => handleResizeStart(e, field, frame, dir)}
                   className={`absolute w-3 h-3 bg-primary border-2 border-surface rounded-sm ${
                     dir === 'nw' ? '-top-1.5 -left-1.5 cursor-nwse-resize' :
                     dir === 'ne' ? '-top-1.5 -right-1.5 cursor-nesw-resize' :
@@ -296,78 +405,193 @@ export function Canvas({ components, selectedId, onSelect, onUpdate, onDelete, s
     );
   };
 
+  // Render a frame
+  const renderFrame = (frame: FrameNode) => {
+    // Get fields in this frame
+    const fieldsInFrame = Object.values(formDefinition.fields).filter(
+      f => f.layout.frameId === frame.id
+    );
+
+    return (
+      <div
+        key={frame.id}
+        style={{
+          position: 'absolute',
+          left: frame.layout.x,
+          top: frame.layout.y,
+          width: frame.layout.w,
+          height: frame.layout.h,
+          backgroundImage: showGrid
+            ? `radial-gradient(circle, var(--color-border) 1.5px, transparent 1.5px)`
+            : 'none',
+          backgroundSize: showGrid
+            ? `${frame.layout.w / frame.grid.columns}px ${frame.grid.rowUnit}px`
+            : '0 0',
+          backgroundColor: 'var(--color-surface)',
+        }}
+        className="border border-border rounded-lg overflow-hidden"
+      >
+        {fieldsInFrame.map(field => renderField(field, frame))}
+      </div>
+    );
+  };
+
   return (
     <div
       ref={canvasRef}
-      className="w-full h-full bg-surface-secondary relative overflow-hidden cursor-grab active:cursor-grabbing select-none custom-scrollbar"
-      onClick={() => onSelect(null)}
+      className="w-full h-full bg-primary/15 relative overflow-hidden cursor-grab active:cursor-grabbing select-none custom-scrollbar"
+      onClick={() => onFieldSelect(null)}
       onMouseDown={(e) => {
-        if (e.target === canvasRef.current || e.target === workspaceRef.current) {
+        if (e.target === canvasRef.current || e.target === worldRef.current) {
           e.preventDefault();
           setPanning({
             startX: e.clientX,
             startY: e.clientY,
-            startPan: { ...pan },
+            startCamera: { ...camera },
           });
         }
       }}
       onWheel={(e) => {
-        // Zoom with mouse wheel (Ctrl/Cmd + scroll) - ONLY affects canvas, not browser
+        // Zoom with mouse wheel (Ctrl/Cmd + scroll)
         if (e.ctrlKey || e.metaKey) {
-          e.preventDefault(); // Prevent browser zoom
+          e.preventDefault();
           e.stopPropagation();
           
-          const delta = e.deltaY > 0 ? -CANVAS_CONFIG.ZOOM_STEP : CANVAS_CONFIG.ZOOM_STEP;
-          const newZoom = clampZoom(zoom + delta);
+          const delta = e.deltaY > 0 ? -0.1 : 0.1;
+          const newZoom = Math.max(
+            CAMERA_CONFIG.MIN_ZOOM,
+            Math.min(CAMERA_CONFIG.MAX_ZOOM, camera.zoom + delta)
+          );
           
-          // Update zoom
-          onZoomChange(newZoom);
-          
-          // After zoom, clamp pan to new boundaries
+          // Zoom towards mouse position
           if (canvasRef.current) {
-            const viewportWidth = canvasRef.current.clientWidth;
-            const viewportHeight = canvasRef.current.clientHeight;
-            const scaledWidth = CANVAS_WIDTH * (newZoom / 100);
-            const scaledHeight = CANVAS_HEIGHT * (newZoom / 100);
-            const maxPanX = (scaledWidth - viewportWidth) / 2;
-            const maxPanY = (scaledHeight - viewportHeight) / 2;
+            const rect = canvasRef.current.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
             
-            onPanChange({
-              x: Math.min(maxPanX, Math.max(-maxPanX, pan.x)),
-              y: Math.min(maxPanY, Math.max(-maxPanY, pan.y)),
-            });
+            // World position before zoom
+            const worldBefore = screenToWorld(mouseX, mouseY, camera, { width: rect.width, height: rect.height });
+            
+            // Update zoom
+            const newCamera = { ...camera, zoom: newZoom };
+            
+            // World position after zoom (if we don't adjust camera position)
+            const worldAfter = screenToWorld(mouseX, mouseY, newCamera, { width: rect.width, height: rect.height });
+            
+            // Adjust camera to keep mouse over same world point
+            newCamera.x += worldBefore.x - worldAfter.x;
+            newCamera.y += worldBefore.y - worldAfter.y;
+            
+            onCameraChange(clampCamera(newCamera, rootFrame));
           }
         }
       }}
       tabIndex={0}
       style={{ outline: 'none' }}
     >
-      {/* Infinite Canvas Workspace */}
+      {/* World container with camera transform */}
       <div 
-        ref={workspaceRef}
+        ref={worldRef}
         className="absolute select-none"
         style={{
-          width: `${CANVAS_WIDTH}px`,
-          height: `${CANVAS_HEIGHT}px`,
           left: '50%',
           top: '50%',
-          transform: `translate(-50%, -50%) translate(${pan.x}px, ${pan.y}px) scale(${zoom / 100})`,
-          transformOrigin: 'center center',
-          backgroundImage: showGrid
-            ? `
-              linear-gradient(var(--color-border) 1px, transparent 1px),
-              linear-gradient(90deg, var(--color-border) 1px, transparent 1px)
-            `
-            : `radial-gradient(circle, var(--color-border) 2px, transparent 2px)`,
-          backgroundSize: showGrid
-            ? `${GRID_SIZE}px ${GRID_SIZE}px`
-            : `${GRID_SIZE * 5}px ${GRID_SIZE * 5}px`,
-          backgroundPosition: '0 0',
-          backgroundColor: 'var(--color-surface)',
+          transform: `translate(-50%, -50%) translate(${-camera.x * camera.zoom}px, ${-camera.y * camera.zoom}px) scale(${camera.zoom})`,
+          transformOrigin: '0 0',
         }}
       >
-        {components.map(renderComponent)}
+        {/* Render all frames */}
+        {Object.values(formDefinition.frames).map(renderFrame)}
       </div>
+    </div>
+  );
+}
+
+function FieldPreview({ field }: { field: FieldNode }) {
+  const baseClass = "w-full px-3 py-2 text-sm border border-border rounded-lg bg-surface text-text";
+
+  // Use field.type directly
+  const fieldType = field.type;
+
+  if (fieldType === 'textarea') {
+    return (
+      <div>
+        <label className="block text-sm font-medium text-text mb-1">
+          {field.props.label} {field.props.required && <span className="text-error">*</span>}
+        </label>
+        <textarea
+          placeholder={field.props.placeholder}
+          disabled
+          className={`${baseClass} resize-none`}
+          rows={3}
+        />
+      </div>
+    );
+  }
+
+  if (fieldType === 'select') {
+    return (
+      <div>
+        <label className="block text-sm font-medium text-text mb-1">
+          {field.props.label} {field.props.required && <span className="text-error">*</span>}
+        </label>
+        <select disabled className={baseClass}>
+          <option>{field.props.placeholder || 'Select an option'}</option>
+          {field.props.options?.map((opt, i) => (
+            <option key={i}>{opt}</option>
+          ))}
+        </select>
+      </div>
+    );
+  }
+
+  if (fieldType === 'checkbox' || fieldType === 'radio') {
+    return (
+      <div>
+        <label className="block text-sm font-medium text-text mb-2">
+          {field.props.label} {field.props.required && <span className="text-error">*</span>}
+        </label>
+        <div className="space-y-2">
+          {field.props.options?.map((opt, i) => (
+            <label key={i} className="flex items-center gap-2">
+              <input
+                type={fieldType}
+                disabled
+                className="w-4 h-4 text-primary border-border"
+              />
+              <span className="text-sm text-text">{opt}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (fieldType === 'file') {
+    return (
+      <div>
+        <label className="block text-sm font-medium text-text mb-1">
+          {field.props.label} {field.props.required && <span className="text-error">*</span>}
+        </label>
+        <div className="border-2 border-dashed border-border rounded-lg p-4 text-center">
+          <div className="text-text-secondary text-sm">Click to upload or drag and drop</div>
+        </div>
+      </div>
+    );
+  }
+
+  // Default input field
+  return (
+    <div>
+      <label className="block text-sm font-medium text-text mb-1">
+        {field.props.label} {field.props.required && <span className="text-error">*</span>}
+      </label>
+      <input
+        type={fieldType}
+        placeholder={field.props.placeholder}
+        disabled
+        className={baseClass}
+      />
     </div>
   );
 }

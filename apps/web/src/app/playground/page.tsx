@@ -6,23 +6,48 @@ import { Nav } from '@/components/Nav';
 import { AuthModal } from '@/components/AuthModal';
 import { useAuth } from '@/lib/auth';
 import { useAutosave } from '@/lib/storage';
-import { FormComponent, ComponentType } from './types';
-import { findValidPosition } from './gridUtils';
+import { FormComponent, ComponentType, FormDefinition, FieldNode, FrameNode, FieldType } from './types';
+import { findValidFieldPosition } from './gridUtils';
 import { Canvas } from './components/Canvas';
 import { PageAndElementControls } from './components/PageAndElementControls';
 import { Elements } from './components/Elements';
 import { CANVAS_CONFIG, calculateZoomStep } from './config';
+import { Camera, fitCameraToFrame, CAMERA_CONFIG } from './camera';
 
 export default function PlaygroundPage() {
   const router = useRouter();
   const { user } = useAuth();
   const [showAuthModal, setShowAuthModal] = useState(false);
-  const [formTitle, setFormTitle] = useState('Untitled Form');
+  
+  // Initialize root frame
+  const rootFrameId = 'root';
+  const rootFrame: FrameNode = {
+    id: rootFrameId,
+    type: 'frame',
+    name: 'Root Frame',
+    parentId: null,
+    layout: { x: 0, y: 0, w: 960, h: 1200 },
+    grid: { columns: 20, rowUnit: 40 },
+  };
+  
+  const [formDefinition, setFormDefinition] = useState<FormDefinition>({
+    id: crypto.randomUUID(),
+    title: 'Untitled Form',
+    rootFrameId,
+    frames: { [rootFrameId]: rootFrame },
+    fields: {},
+  });
+  
+  const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
+  const [showGrid, setShowGrid] = useState(true);
+  const [showSnapping, setShowSnapping] = useState(true);
+  const [camera, setCamera] = useState<Camera>(() => 
+    fitCameraToFrame(0, 0, 960, 1200, { width: 1200, height: 800 })
+  );
+  
+  // Legacy support during migration
   const [components, setComponents] = useState<FormComponent[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [showGrid, setShowGrid] = useState(false);
-  const [zoom, setZoom] = useState<number>(CANVAS_CONFIG.ZOOM_DEFAULT);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
   
   // Prevent browser zoom globally on this page
   useEffect(() => {
@@ -48,10 +73,11 @@ export default function PlaygroundPage() {
     };
   }, []);
   
-  // Auto-save to IndexedDB
+  // Auto-save to IndexedDB (temporarily disabled during migration)
+  // TODO: Update LocalForm type to support new FormDefinition
   const { saving } = useAutosave('playground-draft', {
-    title: formTitle,
-    components,
+    title: formDefinition.title,
+    components: [],  // Legacy field, empty during migration
   });
 
   const handleSave = async () => {
@@ -66,10 +92,7 @@ export default function PlaygroundPage() {
       const response = await fetch('/api/forms', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: formTitle,
-          components,
-        }),
+        body: JSON.stringify(formDefinition),
       });
 
       if (response.ok) {
@@ -86,58 +109,116 @@ export default function PlaygroundPage() {
     await handleSave();
   };
 
-  const handleAddComponent = (type: ComponentType) => {
-    const newComponent: FormComponent = {
-      id: crypto.randomUUID(),
-      type,
-      label: `${type.charAt(0).toUpperCase() + type.slice(1)} Field`,
-      placeholder: '',
-      required: false,
-      options: type === 'select' || type === 'radio' || type === 'checkbox' ? ['Option 1', 'Option 2', 'Option 3'] : undefined,
-      position: findValidPosition(components, { 
-        x: 0, 
-        y: 0, 
-        w: CANVAS_CONFIG.DEFAULT_COMPONENT_WIDTH, 
-        h: type === 'textarea' ? CANVAS_CONFIG.DEFAULT_TEXTAREA_HEIGHT : CANVAS_CONFIG.DEFAULT_COMPONENT_HEIGHT 
-      }),
+  const handleAddField = (type: string) => {
+    const fieldId = crypto.randomUUID();
+    const rootFrame = formDefinition.frames[formDefinition.rootFrameId];
+    
+    // Determine field dimensions in grid units
+    const defaultW = 10; // Half width (10 of 20 columns)
+    const defaultH = type === 'textarea' ? 4 : 2;
+    
+    // Find valid position
+    const existingFields = Object.values(formDefinition.fields);
+    const position = findValidFieldPosition(
+      existingFields,
+      formDefinition.rootFrameId,
+      defaultW,
+      defaultH,
+      rootFrame.grid.columns
+    );
+    
+    const newField: FieldNode = {
+      id: fieldId,
+      type: type as FieldType,
+      parentId: null,
+      props: {
+        label: `${type.charAt(0).toUpperCase() + type.slice(1)} Field`,
+        placeholder: '',
+        required: false,
+        options: type === 'select' || type === 'radio' || type === 'checkbox' 
+          ? ['Option 1', 'Option 2', 'Option 3'] 
+          : undefined,
+      },
+      layout: {
+        frameId: formDefinition.rootFrameId,
+        ...position,
+      },
     };
-    setComponents([...components, newComponent]);
-    setSelectedId(newComponent.id);
+    
+    setFormDefinition({
+      ...formDefinition,
+      fields: {
+        ...formDefinition.fields,
+        [fieldId]: newField,
+      },
+    });
+    setSelectedFieldId(fieldId);
   };
 
-  const handleUpdateComponent = (updates: Partial<FormComponent>) => {
-    if (!selectedId) return;
-    setComponents(components.map(comp =>
-      comp.id === selectedId ? { ...comp, ...updates } : comp
-    ));
+  const handleUpdateField = (fieldId: string, updates: Partial<FieldNode>) => {
+    const field = formDefinition.fields[fieldId];
+    if (!field) return;
+    
+    setFormDefinition({
+      ...formDefinition,
+      fields: {
+        ...formDefinition.fields,
+        [fieldId]: {
+          ...field,
+          ...updates,
+          props: { ...field.props, ...(updates.props || {}) },
+          layout: { ...field.layout, ...(updates.layout || {}) },
+        },
+      },
+    });
   };
 
-  const handleDeleteComponent = () => {
-    if (!selectedId) return;
-    setComponents(components.filter(comp => comp.id !== selectedId));
-    setSelectedId(null);
+  const handleDeleteField = () => {
+    if (!selectedFieldId) return;
+    const { [selectedFieldId]: removed, ...remainingFields } = formDefinition.fields;
+    setFormDefinition({
+      ...formDefinition,
+      fields: remainingFields,
+    });
+    setSelectedFieldId(null);
   };
 
-  const handleDuplicateComponent = () => {
-    if (!selectedId) return;
-    const original = components.find(c => c.id === selectedId);
+  const handleDuplicateField = () => {
+    if (!selectedFieldId) return;
+    const original = formDefinition.fields[selectedFieldId];
     if (!original) return;
     
-    const duplicate: FormComponent = {
+    const rootFrame = formDefinition.frames[formDefinition.rootFrameId];
+    const existingFields = Object.values(formDefinition.fields);
+    const position = findValidFieldPosition(
+      existingFields,
+      original.layout.frameId,
+      original.layout.w,
+      original.layout.h,
+      rootFrame.grid.columns
+    );
+    
+    const duplicateId = crypto.randomUUID();
+    const duplicate: FieldNode = {
       ...original,
-      id: crypto.randomUUID(),
-      position: findValidPosition(components, original.position),
+      id: duplicateId,
+      layout: {
+        ...original.layout,
+        ...position,
+      },
     };
-    setComponents([...components, duplicate]);
-    setSelectedId(duplicate.id);
+    
+    setFormDefinition({
+      ...formDefinition,
+      fields: {
+        ...formDefinition.fields,
+        [duplicateId]: duplicate,
+      },
+    });
+    setSelectedFieldId(duplicateId);
   };
 
-  // Handle zoom via wheel event
-  const handleZoomChange = (newZoom: number) => {
-    setZoom(newZoom);
-  };
-
-  const selectedComponent = selectedId ? components.find(c => c.id === selectedId) || null : null;
+  const selectedField = selectedFieldId ? formDefinition.fields[selectedFieldId] || null : null;
 
   return (
     <div className="h-screen flex flex-col bg-surface overflow-hidden">
@@ -154,44 +235,61 @@ export default function PlaygroundPage() {
         {/* Canvas Area - Full Width */}
         <div className="flex-1 relative overflow-hidden">
           <Canvas
-            components={components}
-            selectedId={selectedId}
-            onSelect={setSelectedId}
-            onUpdate={(id, updates) => {
-              setComponents(components.map(comp =>
-                comp.id === id ? { ...comp, position: { ...comp.position, ...updates } } : comp
-              ));
-            }}
-            onDelete={handleDeleteComponent}
+            formDefinition={formDefinition}
+            selectedFieldId={selectedFieldId}
+            onFieldSelect={setSelectedFieldId}
+            onFieldUpdate={handleUpdateField}
+            onFieldDelete={handleDeleteField}
+            camera={camera}
+            onCameraChange={setCamera}
             showGrid={showGrid}
-            zoom={zoom}
-            pan={pan}
-            onPanChange={setPan}
-            onZoomChange={handleZoomChange}
+            snapToGrid={showSnapping}
           />
 
           {/* Floating Islands - Page & Element Controls */}
           <PageAndElementControls
-            title={formTitle}
-            onTitleChange={setFormTitle}
+            title={formDefinition.title}
+            onTitleChange={(title) => setFormDefinition({ ...formDefinition, title })}
             saving={saving}
             onSave={handleSave}
             onPreview={() => {}}
             onShare={() => {}}
-            zoom={zoom}
-            onZoomIn={() => setZoom(calculateZoomStep(zoom, 'in'))}
-            onZoomOut={() => setZoom(calculateZoomStep(zoom, 'out'))}
+            camera={camera}
+            onCameraChange={setCamera}
             showGrid={showGrid}
             onToggleGrid={() => setShowGrid(!showGrid)}
+            showSnapping={showSnapping}
+            onToggleSnapping={() => setShowSnapping(!showSnapping)}
             onResetView={() => {
-              setZoom(CANVAS_CONFIG.ZOOM_DEFAULT);
-              setPan({ x: 0, y: 0 });
+              const rootFrame = formDefinition.frames[formDefinition.rootFrameId];
+              setCamera(fitCameraToFrame(
+                rootFrame.layout.x,
+                rootFrame.layout.y,
+                rootFrame.layout.w,
+                rootFrame.layout.h,
+                { width: 1200, height: 800 }
+              ));
+            }}
+            rootFrame={formDefinition.frames[formDefinition.rootFrameId]}
+            onFrameSizeChange={(width, height) => {
+              const rootFrame = formDefinition.frames[formDefinition.rootFrameId];
+              const updatedFrame = {
+                ...rootFrame,
+                layout: { ...rootFrame.layout, w: width, h: height },
+              };
+              setFormDefinition({
+                ...formDefinition,
+                frames: {
+                  ...formDefinition.frames,
+                  [formDefinition.rootFrameId]: updatedFrame,
+                },
+              });
             }}
           />
 
           {/* Left Vertical Island - Elements */}
           <Elements
-            onAddElement={() => {}}
+            onAddElement={handleAddField}
             onTemplates={() => {}}
           />
         </div>

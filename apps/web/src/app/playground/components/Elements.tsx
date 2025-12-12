@@ -2,7 +2,7 @@ import { Container, Plus, LayoutPanelTop, Type, Mail, Phone, Calendar, FileText,
 import { useState } from 'react';
 
 type ElementsProps = {
-  onAddElement: () => void;
+  onAddElement: (type: string) => void;
   onTemplates: () => void;
 };
 
@@ -47,7 +47,7 @@ export function Elements({
 
   const handleSelectElement = (elementId: string) => {
     console.log('Selected element:', elementId);
-    onAddElement();
+    onAddElement(elementId);
     setShowElements(false);
   };
 

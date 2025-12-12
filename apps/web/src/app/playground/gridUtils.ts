@@ -1,74 +1,80 @@
-import { GridPosition, FormComponent } from './types';
-
-const GRID_SIZE = 8; // pixels
-const COLUMNS = 20;
+import { FieldNode, FrameNode } from './types';
 
 /**
- * Snap a pixel value to the nearest grid position
+ * Grid utilities for Frame-based layout system
+ * 
+ * Frames use a 20-column grid with configurable row height.
+ * Fields are positioned using grid units (columns and rows).
  */
-export function snapToGrid(value: number): number {
-  return Math.round(value / GRID_SIZE) * GRID_SIZE;
+
+/**
+ * Convert grid column to pixels within frame
+ */
+export function gridColToPx(col: number, frameWidth: number, columns: number): number {
+  const colWidth = frameWidth / columns;
+  return col * colWidth;
 }
 
 /**
- * Convert pixel position to grid coordinates
+ * Convert grid row to pixels
  */
-export function pixelToGrid(x: number, y: number, canvasWidth: number): { col: number; row: number } {
-  const columnWidth = canvasWidth / COLUMNS;
-  const col = Math.floor(x / columnWidth);
-  const row = Math.floor(y / GRID_SIZE);
-  
-  return {
-    col: Math.max(0, Math.min(COLUMNS - 1, col)),
-    row: Math.max(0, row),
-  };
+export function gridRowToPx(row: number, rowUnit: number): number {
+  return row * rowUnit;
 }
 
 /**
- * Convert grid coordinates to pixel position
+ * Convert pixel X to grid column
  */
-export function gridToPixel(col: number, row: number, canvasWidth: number): { x: number; y: number } {
-  const columnWidth = canvasWidth / COLUMNS;
-  
-  return {
-    x: col * columnWidth,
-    y: row * GRID_SIZE,
-  };
+export function pxToGridCol(px: number, frameWidth: number, columns: number): number {
+  const colWidth = frameWidth / columns;
+  return Math.floor(px / colWidth);
 }
 
 /**
- * Check if two components overlap
+ * Convert pixel Y to grid row
  */
-export function checkOverlap(
-  comp1: GridPosition,
-  comp2: GridPosition
+export function pxToGridRow(px: number, rowUnit: number): number {
+  return Math.floor(px / rowUnit);
+}
+
+/**
+ * Check if two fields overlap (in grid units)
+ */
+export function checkFieldOverlap(
+  field1: { x: number; y: number; w: number; h: number },
+  field2: { x: number; y: number; w: number; h: number }
 ): boolean {
   return !(
-    comp1.x + comp1.w <= comp2.x ||
-    comp2.x + comp2.w <= comp1.x ||
-    comp1.y + comp1.h <= comp2.y ||
-    comp2.y + comp2.h <= comp1.y
+    field1.x + field1.w <= field2.x ||
+    field2.x + field2.w <= field1.x ||
+    field1.y + field1.h <= field2.y ||
+    field2.y + field2.h <= field1.y
   );
 }
 
 /**
- * Find valid position for new component (avoiding overlaps)
+ * Find valid position for new field (avoiding overlaps)
  */
-export function findValidPosition(
-  components: FormComponent[],
-  newComponent: GridPosition
-): GridPosition {
-  let position = { ...newComponent };
+export function findValidFieldPosition(
+  existingFields: FieldNode[],
+  frameId: string,
+  defaultW: number,
+  defaultH: number,
+  columns: number
+): { x: number; y: number; w: number; h: number } {
+  const fieldsInFrame = existingFields.filter(f => f.layout.frameId === frameId);
   
-  // Try to place at original position
-  let hasOverlap = components.some(c => checkOverlap(position, c.position));
+  let position = { x: 0, y: 0, w: defaultW, h: defaultH };
+  
+  // Try to place at top-left first
+  let hasOverlap = fieldsInFrame.some(f => checkFieldOverlap(position, f.layout));
   
   if (!hasOverlap) return position;
   
   // Try moving down until we find a spot
   for (let row = 0; row < 100; row++) {
     position.y = row;
-    hasOverlap = components.some(c => checkOverlap(position, c.position));
+    hasOverlap = fieldsInFrame.some(f => checkFieldOverlap(position, f.layout));
     if (!hasOverlap) return position;
   }
   
@@ -76,13 +82,44 @@ export function findValidPosition(
 }
 
 /**
- * Clamp component position within canvas bounds
+ * Clamp field position within frame bounds
  */
-export function clampPosition(position: GridPosition): GridPosition {
+export function clampFieldPosition(
+  position: { x: number; y: number; w: number; h: number },
+  columns: number
+): { x: number; y: number; w: number; h: number } {
   return {
-    x: Math.max(0, Math.min(COLUMNS - position.w, position.x)),
+    x: Math.max(0, Math.min(columns - position.w, position.x)),
     y: Math.max(0, position.y),
-    w: Math.max(1, Math.min(COLUMNS - position.x, position.w)),
+    w: Math.max(1, Math.min(columns - position.x, position.w)),
     h: Math.max(1, position.h),
+  };
+}
+
+/**
+ * Convert frame-local pixel coordinates to world coordinates
+ */
+export function frameLocalToWorld(
+  localX: number,
+  localY: number,
+  frame: FrameNode
+): { x: number; y: number } {
+  return {
+    x: frame.layout.x + localX,
+    y: frame.layout.y + localY,
+  };
+}
+
+/**
+ * Convert world coordinates to frame-local coordinates
+ */
+export function worldToFrameLocal(
+  worldX: number,
+  worldY: number,
+  frame: FrameNode
+): { x: number; y: number } {
+  return {
+    x: worldX - frame.layout.x,
+    y: worldY - frame.layout.y,
   };
 }
